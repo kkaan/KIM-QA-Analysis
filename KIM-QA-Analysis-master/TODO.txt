@@ -1,0 +1,10 @@
+> hi we want to refactor @Elekta\App_Static_loc.mlapp and @Elekta\Staticloc.m to python. The code takes in a 
+centroid file with expected coordinates for the fiducials (Seeds) and centroid/isocentre. It also takes in the 
+trajectory logs of the measured positions of the fiducials outputted by the KIM tracking software (which measures 
+via fluroscopy the actual positions). We get graphical traces of the deviation with time. The @"Lyrebird Data\" 
+folder contains the centroid file @"Lyrebird Data\Centroid_248687_BeamID_3.1_3.2.txt" and trajectory files. 
+
+The matlab code requires the centroid file (sometime called patient file) to be stripped of everything but the 
+values. Could the python code just handle this. The values will be in the same order. 
+
+
