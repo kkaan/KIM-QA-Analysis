@@ -55,3 +55,7 @@ desktop.ini
 # Temporary files
 *.tmp
 *.bak
+
+# PyInstaller build artifacts
+build/
+dist/
