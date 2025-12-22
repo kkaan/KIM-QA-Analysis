@@ -1,0 +1,10 @@
+[MASTER]
+# Ignore Jupyter notebooks
+ignore-patterns=*.ipynb
+
+# Also ignore common directories
+ignore=.venv,
+       .git,
+       __pycache__,
+       .pytest_cache,
+       .mypy_cache
