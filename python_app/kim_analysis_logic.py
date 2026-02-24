@@ -10,15 +10,15 @@ def parse_centroid_file(filepath):
     with open(filepath, 'r') as f:
         content = f.read()
 
-    # Extract Seed coordinates
+    # Extract Seed coordinates (dynamically detect number of seeds)
     seeds = []
-    for i in range(1, 4):
-        match = re.search(f"Seed {i}, X=\s*([-\d\.]+), Y=\s*([-\d\.]+), Z=\s*([-\d\.]+)", content)
+    for i in range(1, 10):  # Support up to 9 seeds
+        match = re.search(f"Seed\s*{i}, X=\s*([-\d\.]+), Y=\s*([-\d\.]+), Z=\s*([-\d\.]+)", content)
         if match:
             seeds.append([float(match.group(1)), float(match.group(2)), float(match.group(3))])
-    
-    if len(seeds) != 3:
-        raise ValueError("Could not find all 3 seeds in the centroid file.")
+
+    if len(seeds) < 2:
+        raise ValueError(f"Need at least 2 seeds in centroid file, found {len(seeds)}.")
 
     # Extract Isocenter coordinates
     iso_match = re.search(r"Isocenter \(cm\), X=\s*([-\d\.]+), Y=\s*([-\d\.]+), Z=\s*([-\d\.]+)", content)
@@ -72,73 +72,37 @@ def parse_trajectory_file(filepath):
     # Clean column names (strip whitespace)
     df.columns = df.columns.str.strip()
 
-    # Ensure we have the necessary columns
-    required_cols = ['Time (sec)', 'Gantry',
-                     'Marker_0_AP', 'Marker_0_LR', 'Marker_0_SI',
-                     'Marker_1_AP', 'Marker_1_LR', 'Marker_1_SI',
-                     'Marker_2_AP', 'Marker_2_LR', 'Marker_2_SI']
-    
-    # Check if columns exist (handling potential naming variations if needed)
-    # The file view shows "Marker_0_SI " (with space). The strip() above handles this.
-    
-    # Sort markers by SI position (Z) for each frame to ensure consistent ordering
-    # MATLAB: Index the markers by SI position where 1 is the most cranial and 3 the most caudal
-    # "most cranial" usually means highest SI value? 
-    # MATLAB: sortedArray = sort(array, 'descend'); -> Yes, descending SI.
-    
-    # We need to do this row by row.
-    
+    # Dynamically detect marker columns
+    num_markers = 0
+    for i in range(10):
+        if f'Marker_{i}_AP' in df.columns:
+            num_markers += 1
+        else:
+            break
+
+    if num_markers < 2:
+        raise ValueError(f"Need at least 2 markers in trajectory file, found {num_markers}.")
+
     processed_data = []
 
     for index, row in df.iterrows():
-        # Extract markers
-        m0 = {'ap': row['Marker_0_AP'], 'lr': row['Marker_0_LR'], 'si': row['Marker_0_SI']}
-        m1 = {'ap': row['Marker_1_AP'], 'lr': row['Marker_1_LR'], 'si': row['Marker_1_SI']}
-        m2 = {'ap': row['Marker_2_AP'], 'lr': row['Marker_2_LR'], 'si': row['Marker_2_SI']}
-        
-        markers = [m0, m1, m2]
-        
-        # Sort by SI (descending)
+        # Extract all available markers
+        markers = []
+        for i in range(num_markers):
+            markers.append({
+                'ap': row[f'Marker_{i}_AP'],
+                'lr': row[f'Marker_{i}_LR'],
+                'si': row[f'Marker_{i}_SI']
+            })
+
+        # Sort by SI (descending) for consistent ordering
         markers.sort(key=lambda x: x['si'], reverse=True)
-        
+
         # Calculate Centroid of measured markers
-        # MATLAB: KIMData.xCent = (KIMData.x1 + KIMData.x2 + KIMData.x3)/3 ...
-        # MATLAB Mapping:
-        # x = LR (Column 5, 8, 11)
-        # y = SI (Column 6, 9, 12)
-        # z = AP (Column 4, 7, 10)
-        
-        # Let's compute the average LR, SI, AP first
-        avg_lr = (m0['lr'] + m1['lr'] + m2['lr']) / 3.0
-        avg_si = (m0['si'] + m1['si'] + m2['si']) / 3.0
-        avg_ap = (m0['ap'] + m1['ap'] + m2['ap']) / 3.0
-        
-        # Map to Analysis Coordinates (X, Y, Z)
-        # Based on MATLAB:
-        # plot(..., KIMData.xCent, ..., KIMData.yCent, ..., KIMData.zCent)
-        # legend('LAT (KIM)', 'LONG (KIM)', 'VRT (KIM)');
-        # Wait, usually:
-        # LAT = Lateral = LR = X
-        # LONG = Longitudinal = SI = Y
-        # VRT = Vertical = AP = Z
-        
-        # Let's re-verify MATLAB mapping in readKIMData:
-        # eval(['KIMData.x' num2str(n) '= rawKIMData{5};']); -> 5th col is LR. So X = LR.
-        # eval(['KIMData.y' num2str(n) '= rawKIMData{6};']); -> 6th col is SI. So Y = SI.
-        # eval(['KIMData.z' num2str(n) '= rawKIMData{4};']); -> 4th col is AP. So Z = AP.
-        
-        # BUT in Staticloc.m:
-        # Avg_marker_x = Avg_marker_x_iso;
-        # Avg_marker_y = Avg_marker_z_iso;  <-- Y is Z_iso?
-        # Avg_marker_z = -Avg_marker_y_iso; <-- Z is -Y_iso?
-        
-        # And KIMData.xCent = ... - Avg_marker_x;
-        
-        # Let's stick to the Trajectory File mapping first:
-        # meas_x = LR
-        # meas_y = SI
-        # meas_z = AP
-        
+        avg_lr = np.mean([m['lr'] for m in markers])
+        avg_si = np.mean([m['si'] for m in markers])
+        avg_ap = np.mean([m['ap'] for m in markers])
+
         processed_data.append({
             'time': row['Time (sec)'],
             'gantry': row['Gantry'],
@@ -232,22 +196,30 @@ def parse_kim_data(folder_path):
             df = pd.read_csv(filepath)
             df.columns = df.columns.str.strip()
             
-            # Process each row to calculate centroid
-            # Similar logic to parse_trajectory_file but we need to be robust
-            
+            # Dynamically detect marker columns
+            num_markers = 0
+            for i in range(10):
+                if f'Marker_{i}_AP' in df.columns:
+                    num_markers += 1
+                else:
+                    break
+
             for index, row in df.iterrows():
-                # Extract markers
-                m0 = {'ap': row['Marker_0_AP'], 'lr': row['Marker_0_LR'], 'si': row['Marker_0_SI']}
-                m1 = {'ap': row['Marker_1_AP'], 'lr': row['Marker_1_LR'], 'si': row['Marker_1_SI']}
-                m2 = {'ap': row['Marker_2_AP'], 'lr': row['Marker_2_LR'], 'si': row['Marker_2_SI']}
-                
-                markers = [m0, m1, m2]
+                # Extract all available markers
+                markers = []
+                for i in range(num_markers):
+                    markers.append({
+                        'ap': row[f'Marker_{i}_AP'],
+                        'lr': row[f'Marker_{i}_LR'],
+                        'si': row[f'Marker_{i}_SI']
+                    })
+
                 # Sort by SI (descending)
                 markers.sort(key=lambda x: x['si'], reverse=True)
-                
-                avg_lr = (m0['lr'] + m1['lr'] + m2['lr']) / 3.0
-                avg_si = (m0['si'] + m1['si'] + m2['si']) / 3.0
-                avg_ap = (m0['ap'] + m1['ap'] + m2['ap']) / 3.0
+
+                avg_lr = np.mean([m['lr'] for m in markers])
+                avg_si = np.mean([m['si'] for m in markers])
+                avg_ap = np.mean([m['ap'] for m in markers])
                 
                 all_data.append({
                     'time': row['Time (sec)'],
