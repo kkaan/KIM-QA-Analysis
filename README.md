@@ -189,11 +189,17 @@ The original MATLAB implementations are still available in the repository:
 - `Elekta/Staticloc.m` - Static localization MATLAB script
 - See respective folders for linac-specific implementations (Elekta, Varian Truebeam)
 
+## PRIME Trial Landing Page
+
+This repository supports the **PRIME clinical trial** (ACTRN12625001244493) — a GenesisCare-sponsored feasibility study of real-time KIM motion management for prostate radiotherapy, supported by the Image X Institute.
+
+**[Visit the PRIME Trial Landing Page](https://kkaan.github.io/KIM-QA-Analysis/)**
+
 ## Interactive kV Imaging Simulator
 
 An interactive browser-based simulator demonstrating depth-dependent magnification, geometric penumbra, and divergent beam geometry in kV imaging:
 
-**[Launch kV Imaging Simulator](https://kkaan.github.io/KIM-QA-Analysis/)**
+**[Launch kV Imaging Simulator](https://kkaan.github.io/KIM-QA-Analysis/kv-simulator.html)**
 
 Features adjustable SAD, SID, focal spot size, gantry angle, and target translation controls with real-time BEV scene and detector projection views.
 
