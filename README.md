@@ -189,6 +189,14 @@ The original MATLAB implementations are still available in the repository:
 - `Elekta/Staticloc.m` - Static localization MATLAB script
 - See respective folders for linac-specific implementations (Elekta, Varian Truebeam)
 
+## Interactive kV Imaging Simulator
+
+An interactive browser-based simulator demonstrating depth-dependent magnification, geometric penumbra, and divergent beam geometry in kV imaging:
+
+**[Launch kV Imaging Simulator](https://kkaan.github.io/KIM-QA-Analysis/)**
+
+Features adjustable SAD, SID, focal spot size, gantry angle, and target translation controls with real-time BEV scene and detector projection views.
+
 ## References
 
 For detailed information about the KIM QA analysis methodology, see:
