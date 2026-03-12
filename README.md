@@ -1,3 +1,11 @@
+<a href="https://kkaan.github.io/KIM-QA-Analysis/">
+  <img src="docs/landing-page-images/gc-logo-small.jpg" alt="GenesisCare" height="60">
+</a>
+
+### [Visit our landing page for more details on the trial &rarr;](https://kkaan.github.io/KIM-QA-Analysis/)
+
+---
+
 # KIM QA Analysis - Python Application
 
 A comprehensive GUI application for analyzing KIM (Kilo-voltage Imaging for Motion management) QA data using 6 DoF robot measurements. This application provides an intuitive interface for performing static localization and treatment interrupt analyses.
@@ -188,12 +196,6 @@ The original MATLAB implementations are still available in the repository:
 - `Elekta/App_Static_loc.mlapp` - Static localization MATLAB app
 - `Elekta/Staticloc.m` - Static localization MATLAB script
 - See respective folders for linac-specific implementations (Elekta, Varian Truebeam)
-
-## PRIME Trial Landing Page
-
-This repository supports the **PRIME clinical trial** (ACTRN12625001244493) — a GenesisCare-sponsored feasibility study of real-time KIM motion management for prostate radiotherapy, supported by the Image X Institute.
-
-**[Visit the PRIME Trial Landing Page](https://kkaan.github.io/KIM-QA-Analysis/)**
 
 ## Interactive kV Imaging Simulator
 
