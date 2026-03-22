@@ -50,7 +50,7 @@ def plot_single_marker(filepath):
     for ax, (label, values), color in zip(axs, axes_data.items(), colors):
         sns.scatterplot(x=time, y=values, ax=ax, color=color, s=15, edgecolor='none')
         ax.set_ylabel(f'{label} (mm)')
-        ax.set_ylim(-5, 5)  # ±5 mm
+        ax.set_ylim(-10, 10)  # ±10 mm
         scatter_artists.append(ax)
 
     axs[-1].set_xlabel('Time (sec)')
