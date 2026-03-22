@@ -7,6 +7,7 @@ Usage:
 """
 
 import sys
+import os
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -34,7 +35,9 @@ def plot_single_marker(filepath):
 
     sns.set_theme(style="whitegrid")
     fig, axs = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
-    fig.suptitle('Single Marker Trajectory', fontsize=14)
+    parts = os.path.normpath(filepath).split(os.sep)
+    title = os.sep.join(parts[-3:])
+    fig.suptitle(title, fontsize=14)
 
     colors = sns.color_palette("deep", 3)
     scatter_artists = []
@@ -85,9 +88,36 @@ def plot_single_marker(filepath):
 
         fig.canvas.draw_idle()
 
+    # On-click: show debug image for nearest data point
+    debugimg_dir = os.path.join(os.path.dirname(filepath), 'debugimg')
+
+    def on_click(event):
+        if event.inaxes not in axs or event.button != 1:
+            return
+        idx = np.argmin(np.abs(time - event.xdata))
+        fname = str(filename[idx]).strip()
+        img_path = os.path.join(debugimg_dir, fname + '.png')
+        if not os.path.exists(img_path):
+            print(f'Debug image not found: {img_path}')
+            return
+        img = plt.imread(img_path)
+        img_fig, img_ax = plt.subplots(figsize=(8, 6))
+        img_ax.imshow(img)
+        img_ax.set_title(f'{fname}  |  t={time[idx]:.2f}s  |  Gantry={gantry[idx]:.1f}\u00b0', fontsize=10)
+        img_ax.axis('off')
+        img_fig.tight_layout()
+        img_fig.show()
+
     fig.canvas.mpl_connect('motion_notify_event', on_hover)
+    fig.canvas.mpl_connect('button_press_event', on_click)
 
     plt.tight_layout()
+
+    # Save PNG next to the input file
+    out_path = os.path.splitext(filepath)[0] + '_plot.png'
+    fig.savefig(out_path, dpi=150, bbox_inches='tight')
+    print(f'Saved: {out_path}')
+
     plt.show()
 
 
