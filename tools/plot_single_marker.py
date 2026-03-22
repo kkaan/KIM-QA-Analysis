@@ -36,7 +36,12 @@ def plot_single_marker(filepath):
     sns.set_theme(style="whitegrid")
     fig, axs = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
     parts = os.path.normpath(filepath).split(os.sep)
-    title = os.sep.join(parts[-3:])
+    # Show path from the CDOG session directory onward
+    cdog_idx = next((i for i, p in enumerate(parts) if 'CDOG' in p), None)
+    if cdog_idx is not None:
+        title = os.sep.join(parts[cdog_idx:])
+    else:
+        title = os.sep.join(parts[-3:])
     fig.suptitle(title, fontsize=14)
 
     colors = sns.color_palette("deep", 3)
@@ -89,7 +94,15 @@ def plot_single_marker(filepath):
         fig.canvas.draw_idle()
 
     # On-click: show debug image for nearest data point
+    # Look for debugimg in the trajectory folder first, then in sibling directories
     debugimg_dir = os.path.join(os.path.dirname(filepath), 'debugimg')
+    if not os.path.isdir(debugimg_dir):
+        parent = os.path.dirname(os.path.dirname(filepath))
+        for sibling in os.listdir(parent):
+            candidate = os.path.join(parent, sibling, 'debugimg')
+            if os.path.isdir(candidate):
+                debugimg_dir = candidate
+                break
 
     def on_click(event):
         if event.inaxes not in axs or event.button != 1:

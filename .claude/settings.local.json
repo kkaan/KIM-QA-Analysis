@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh pr diff:*)"
+      "Bash(gh pr diff:*)",
+      "Bash(git config:*)",
+      "Bash(pip install:*)",
+      "Bash(python plot_single_marker.py \"L:\\\\Experimental implementation\\\\Yellow_Submarine\\\\Acquired_Data\\\\RNSH\\\\RNSH_YellowSubmarine_CDOG_2026-01-09\\\\Marker_less_2026-01-09\\\\CBCT2,SETUP_6FFF_260109_1721\\\\kim-log-2026-03-17\\\\MarkerLocationsGA_CouchShift_0.txt\")",
+      "Bash(python:*)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\kanke\\Repo",
+      "C:\\Users\\kanke\\Repo\\phantom-progress"
     ]
   }
 }

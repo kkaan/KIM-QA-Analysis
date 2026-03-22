@@ -63,6 +63,10 @@ Centroid files use (X, Y, Z) in cm. Trajectory files use (LR, SI, AP). Internal 
 
 `Elekta/` and `Varian Truebeam/` contain the original MATLAB App Designer implementations (.mlapp + .m files). The Python app is a refactored replacement. These directories serve as reference.
 
+### Analysis progress (`C:\Users\kanke\Repo\phantom-progress`)
+
+Separate repository where we document analysis progress for phantom experiments and QA results. Added as a working directory alongside this project.
+
 ### GitHub Pages (`docs/`)
 
 - `index.html` — PRIME trial landing page
