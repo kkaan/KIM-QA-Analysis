@@ -5,7 +5,9 @@
       "Bash(git config:*)",
       "Bash(pip install:*)",
       "Bash(python plot_single_marker.py \"L:\\\\Experimental implementation\\\\Yellow_Submarine\\\\Acquired_Data\\\\RNSH\\\\RNSH_YellowSubmarine_CDOG_2026-01-09\\\\Marker_less_2026-01-09\\\\CBCT2,SETUP_6FFF_260109_1721\\\\kim-log-2026-03-17\\\\MarkerLocationsGA_CouchShift_0.txt\")",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(cp \"L:/Experimental implementation/Yellow_Submarine/Acquired_Data/RNSH/RNSH_YellowSubmarine_CDOG_2026-01-09/Marker_less_2026-01-09/Baselineshift,Lung_6FFF_260109_1826/kim-log_baselineshift-lung/MarkerLocationsGA_CouchShift_0_overlay_aligned.png\" \"C:/Users/kanke/Repo/phantom-progress/results/rtf/baselineshift_lung_overlay_aligned.png\")",
+      "Bash(cp \"L:/Experimental implementation/Yellow_Submarine/Acquired_Data/RNSH/RNSH_YellowSubmarine_CDOG_2026-01-09/Marker_less_2026-01-09/continuous,Prostate_6FFF_260109_1741/kim-log-2026-03-22/MarkerLocationsGA_CouchShift_0_overlay_aligned.png\" \"C:/Users/kanke/Repo/phantom-progress/results/rtf/continuous_prostate_overlay_aligned.png\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\kanke\\Repo",
