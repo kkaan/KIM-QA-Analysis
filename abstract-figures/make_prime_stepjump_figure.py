@@ -1,26 +1,36 @@
-"""Generate a step-jump trajectory figure for PRIME PAT01 FX04.
+"""Generate a step-jump trajectory figure for a PRIME fraction.
 
-Reads four MarkerLocationsGA_CouchShift_*.txt files plus couchShifts.txt from the
-PRIME trajectory log directory, plots the raw centroid trajectory in the 4-11 min
-treatment window with beam-off pauses compressed on the x-axis, and highlights the
-largest intra-fraction couch correction. Correction #1 is the initial localisation
-shift and is not counted as an intra-fraction event.
+Reads the MarkerLocationsGA_CouchShift_*.txt files plus couchShifts.txt from a
+PRIME trajectory log directory, plots the raw centroid trajectory in a real-time
+zoom window with beam-off pauses compressed on the x-axis, and highlights a
+specific intra-fraction couch correction. Correction #1 is the initial
+localisation shift and is never counted as an intra-fraction event.
+
+This module exposes a reusable `make_figure(config)` function so the same
+figure recipe can be driven for any PRIME fraction / intervention. The
+`main()` wrapper below reproduces the PAT01 FX04 abstract figure committed at
+`docs/prime_pat01_fx04_stepjumps.png`.
 
 Run from the repo root:
-    python python_app/make_prime_stepjump_figure.py
+    python abstract-figures/make_prime_stepjump_figure.py
 """
 
 import glob
-import io
 import os
 import re
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from kim_analysis_logic import parse_couch_shifts, parse_centroid_file
+# This script lives in abstract-figures/ but reuses parsers from the main GUI
+# package in python_app/. Add the package directory to sys.path so the import
+# below works regardless of cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python_app"))
+
+from kim_analysis_logic import parse_centroid_file  # noqa: E402
 
 
 # Strip thousands-separator commas inside the Time field once t > 1000 s
@@ -29,12 +39,6 @@ from kim_analysis_logic import parse_couch_shifts, parse_centroid_file
 # a digit and three more digits followed by a decimal point is unambiguous.
 _THOUSANDS_COMMA_RE = re.compile(r"(?<=\d),(?=\d{3}\.)")
 
-
-KIM_FOLDER = r"L:\LEARN\GenesisCare\PRIME\Trajectory Logs\PAT01\FX04\Trajectory Logs"
-COUCH_FILE = KIM_FOLDER + r"\couchShifts.txt"
-# TODO: parametrise via CLI when re-using this script for other patients.
-CENTROID_FILE = r"L:\LEARN\GenesisCare\PRIME\Patient Files\PAT01\Centroid_PAT01_BeamID_1.1_1.2_1.3_1.4.txt"
-OUTPUT_PNG = Path(__file__).resolve().parent.parent / "docs" / "prime_pat01_fx04_stepjumps.png"
 
 # Legacy MATLAB convention: blue=LR, green=SI, red=AP
 AXIS_SPECS = [
@@ -65,38 +69,62 @@ GAP_BREAK_S = 5.0
 # discontinuity. Keeps the trace dense without lying about timing.
 GAP_COMPRESS_S = 3.0
 
-# Zoom window in real-time minutes since first imaging. Restricts the figure to
-# the treatment phase of interest and excludes the initial localisation shift.
-WINDOW_MIN = (4.0, 11.0)
-
-# Per-axis y-limits (mm). After subtracting the expected centroid the trace is
-# a deviation from planned isocentre, so all three axes are centred on zero with
-# +/-5 mm headroom.
-Y_LIMITS = {
-    "meas_x": (-5.0, 5.0),  # LR deviation
-    "meas_y": (-5.0, 5.0),  # SI deviation
-    "meas_z": (-5.0, 5.0),  # AP deviation
-}
-
-# Index of the localisation correction to exclude from the "largest intra-fraction"
-# ranking. Shift #1 (the file 0 -> file 1 correction) is the initial localisation.
-LOCALISATION_SHIFT_IDX = 0
-
-# Translucent "no-correction counterfactual" overlay. The post-correction segment
-# of the trace is replotted with this shift mathematically REMOVED (subtracted),
-# showing where the deviation would have continued sitting if the operator had
-# NOT intervened with the couch correction. Set the FROM/TO values to the same
-# numbers as the actual intra-fraction couch correction (in IEC patient frame
-# VRT/LNG/LAT, cm) so subtracting them undoes the recorded shift exactly.
-# VRT->AP, LNG->SI, LAT->LR. TODO: parametrise via CLI.
-OVERLAY_FROM_CM = (-18.0, 66.1, 1.0)
-OVERLAY_TO_CM = (-17.8, 66.3, 1.0)
 OVERLAY_LABEL = "no-correction counterfactual"
 
 
 def _file_index(filepath: str) -> int:
     match = re.search(r"MarkerLocationsGA_CouchShift_(\d+)\.txt", filepath)
     return int(match.group(1)) if match else -1
+
+
+def read_couch_rows(couch_file: str) -> list:
+    """Read absolute couch positions (VRT, LNG, LAT in cm) from a PRIME
+    couchShifts.txt as a list of (vrt, lng, lat) float tuples.
+
+    Tolerates:
+      - A standard header line ("VRT (cm), LNG (cm), LAT (cm)").
+      - FX01's anomaly where two recording sessions were concatenated without
+        a newline separator so a data row like "-8.2,10.2,0.2VRT (cm), ..."
+        embeds a second header mid-line.
+    """
+    with open(couch_file, "r") as fh:
+        text = fh.read()
+    fragments = re.split(r"VRT[^\n]*", text)
+    rows = []
+    for frag in fragments:
+        for line in frag.splitlines():
+            line = line.strip().rstrip(",")
+            if not line:
+                continue
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 3:
+                continue
+            try:
+                vrt = float(parts[0])
+                lng = float(parts[1])
+                lat = float(parts[2])
+            except ValueError:
+                continue
+            rows.append((vrt, lng, lat))
+    return rows
+
+
+def couch_rows_to_shifts(rows: list) -> list:
+    """Convert a list of (VRT, LNG, LAT) absolute couch positions in cm to a
+    list of inter-row shift dicts with keys {lr, si, ap} in mm. Matches the
+    sign convention of kim_analysis_logic.parse_couch_shifts (Elekta convention:
+    no axis negation).
+    """
+    shifts = []
+    for i in range(len(rows) - 1):
+        v0, l0, a0 = rows[i]
+        v1, l1, a1 = rows[i + 1]
+        shifts.append({
+            "ap": (v1 - v0) * 10.0,
+            "si": (l1 - l0) * 10.0,
+            "lr": (a1 - a0) * 10.0,
+        })
+    return shifts
 
 
 def compress_time_gaps(real_times_s, gap_threshold_s, compressed_width_s):
@@ -126,19 +154,20 @@ def compress_time_gaps(real_times_s, gap_threshold_s, compressed_width_s):
 
 
 def load_kim_centroid(folder: str, expected_centroid: dict) -> pd.DataFrame:
-    """Load and concatenate the four PRIME trajectory files for this fraction
-    and return the per-frame centroid as a *deviation* from the planned
-    isocentre, by subtracting the expected centroid (LR/SI/AP in mm) computed
-    by parse_centroid_file from the patient's seed/iso file.
+    """Load and concatenate the MarkerLocationsGA trajectory files for this
+    fraction and return the per-frame centroid as a *deviation* from the
+    planned isocentre, by subtracting the expected centroid (LR/SI/AP in mm)
+    computed by parse_centroid_file from the patient's seed/iso file.
 
     Quirks of the PRIME export handled here:
-    - Only CouchShift_0.txt carries a header; files 1-3 are headerless
+    - Only CouchShift_0.txt carries a header; later files are headerless
       continuations of the same column layout.
-    - Once the time exceeds 1000 s (mid-way through file 3), the Time field is
-      written with a thousands-separator comma ("1,000.305") which would
-      otherwise be parsed as an extra column.
-    The repo's parse_kim_data assumes every file has a header and fails on these
-    files, so we read the header once from file 0 and reuse it for all four.
+    - Once the time exceeds 1000 s, the Time field is written with a
+      thousands-separator comma ("1,000.305") which would otherwise be parsed
+      as an extra column.
+    The repo's parse_kim_data assumes every file has a header and fails on
+    these files, so we read the header once from file 0 and reuse it for all
+    subsequent files.
     """
     files = sorted(
         glob.glob(os.path.join(folder, "MarkerLocationsGA_CouchShift_*.txt")),
@@ -147,42 +176,64 @@ def load_kim_centroid(folder: str, expected_centroid: dict) -> pd.DataFrame:
     if not files:
         raise FileNotFoundError(f"No MarkerLocationsGA_CouchShift_*.txt in {folder}")
 
-    with open(files[0], "r") as fh:
-        header_line = fh.readline()
-    cols = [c.strip() for c in header_line.rstrip("\n").split(",")]
+    # Positional column layout for the first 9 fields. This is the same in
+    # every PRIME PAT01 file we've seen so far AND in FX01's file 1 rows that
+    # use the 3-marker extended layout (which has extra Marker_2 columns
+    # appended after position 8, not inserted before). We intentionally read
+    # only the first 9 fields and drop the rest to avoid misalignment when a
+    # file mixes 22-column and 29-column rows (as FX01's file 1 does).
+    BASE_COLS = [
+        "Frame No",
+        "Time (sec)",
+        "Gantry",
+        "Marker_0_AP",
+        "Marker_0_LR",
+        "Marker_0_SI",
+        "Marker_1_AP",
+        "Marker_1_LR",
+        "Marker_1_SI",
+    ]
 
     segments = []
     for filepath in files:
         fi = _file_index(filepath)
         with open(filepath, "r") as fh:
-            text = fh.read()
-        if fi == 0:
-            # Drop the header line; we already extracted column names.
-            text = text.split("\n", 1)[1] if "\n" in text else ""
-        text = _THOUSANDS_COMMA_RE.sub("", text)
-        df = pd.read_csv(
-            io.StringIO(text),
-            header=None,
-            names=cols,
-            engine="python",
-        )
-        df.columns = df.columns.str.strip()
+            raw = fh.read()
+        # Drop the header line on file 0 (and on any other file that happens
+        # to carry one).
+        lines = raw.splitlines()
+        if lines and lines[0].lstrip().startswith("Frame"):
+            lines = lines[1:]
+        rows = []
+        for line in lines:
+            if not line.strip():
+                continue
+            # Strip thousands-separator commas inside Time field (e.g.
+            # "1,000.305" -> "1000.305").
+            line = _THOUSANDS_COMMA_RE.sub("", line)
+            parts = line.split(",")
+            if len(parts) < 9:
+                continue
+            rows.append(parts[:9])
+        if not rows:
+            continue
+        df = pd.DataFrame(rows, columns=BASE_COLS)
+        for c in BASE_COLS:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
         df["file_index"] = fi
         segments.append(df)
 
-    combined = pd.concat(segments, ignore_index=True)
+    if not segments:
+        raise SystemExit(f"No data rows in any trajectory file under {folder}")
 
-    # Per-frame centroid across the two markers (mean of LR/SI/AP)
-    lr_cols = [c for c in combined.columns if re.fullmatch(r"Marker_\d+_LR", c)]
-    si_cols = [c for c in combined.columns if re.fullmatch(r"Marker_\d+_SI", c)]
-    ap_cols = [c for c in combined.columns if re.fullmatch(r"Marker_\d+_AP", c)]
+    combined = pd.concat(segments, ignore_index=True)
 
     out = pd.DataFrame({
         "time": combined["Time (sec)"].astype(float),
         "gantry": combined["Gantry"].astype(float),
-        "meas_x": combined[lr_cols].astype(float).mean(axis=1),
-        "meas_y": combined[si_cols].astype(float).mean(axis=1),
-        "meas_z": combined[ap_cols].astype(float).mean(axis=1),
+        "meas_x": combined[["Marker_0_LR", "Marker_1_LR"]].astype(float).mean(axis=1),
+        "meas_y": combined[["Marker_0_SI", "Marker_1_SI"]].astype(float).mean(axis=1),
+        "meas_z": combined[["Marker_0_AP", "Marker_1_AP"]].astype(float).mean(axis=1),
         "file_index": combined["file_index"].astype(int),
     })
     out["time"] = out["time"] - out["time"].iloc[0]
@@ -221,15 +272,44 @@ def load_kim_centroid(folder: str, expected_centroid: dict) -> pd.DataFrame:
     return out
 
 
-def main() -> None:
+def make_figure(config: dict) -> None:
+    """Generate one step-jump trajectory figure from a config dict.
+
+    See module docstring for the config-key contract. Config keys:
+        kim_folder, couch_file, centroid_file, output_png,
+        couch_row_count (optional, default None = use whole file),
+        localisation_shift_idx (default 0),
+        headline_shift_idx (which shift to highlight in gold),
+        window_min (tuple or None = auto-compute),
+        auto_window_half_width_min (default 3.5),
+        y_limits (dict),
+        overlay_from_cm, overlay_to_cm (tuples of 3 floats: VRT, LNG, LAT in cm),
+        suptitle, subtitle.
+    """
+    kim_folder = config["kim_folder"]
+    couch_file = config["couch_file"]
+    centroid_file = config["centroid_file"]
+    output_png = Path(config["output_png"])
+    couch_row_count = config.get("couch_row_count")
+    localisation_shift_idx = config.get("localisation_shift_idx", 0)
+    headline_shift_idx = config["headline_shift_idx"]
+    window_min = config.get("window_min")
+    auto_half = config.get("auto_window_half_width_min", 3.5)
+    y_limits = config["y_limits"]
+    overlay_from_cm = config["overlay_from_cm"]
+    overlay_to_cm = config["overlay_to_cm"]
+    suptitle = config["suptitle"]
+    subtitle = config["subtitle"]
+    headline_label = config.get("headline_label", "Headlined correction")
+
     # --- load -----------------------------------------------------------------
     try:
-        centroid = parse_centroid_file(CENTROID_FILE)
+        centroid = parse_centroid_file(centroid_file)
         expected = centroid["expected_centroid"]
-        kim_df = load_kim_centroid(KIM_FOLDER, expected)
-        shifts = parse_couch_shifts(COUCH_FILE)
+        kim_df = load_kim_centroid(kim_folder, expected)
+        couch_rows = read_couch_rows(couch_file)
     except Exception as exc:
-        raise SystemExit(f"Failed to read PRIME logs from {KIM_FOLDER}: {exc}")
+        raise SystemExit(f"Failed to read PRIME logs from {kim_folder}: {exc}")
 
     print(
         f"Expected centroid (mm): "
@@ -238,12 +318,30 @@ def main() -> None:
 
     if kim_df.empty:
         raise SystemExit("parse_kim_data returned an empty DataFrame.")
-    if kim_df["file_index"].nunique() != 4:
+
+    n_files = kim_df["file_index"].nunique()
+
+    # Slice couch rows to the LAST couch_row_count entries if requested. This
+    # handles fractions whose couchShifts.txt contains stale leading rows from
+    # a prior recording session (e.g. PAT01 FX01): only the last n_files rows
+    # of couchShifts.txt are real, yielding n_files - 1 deltas.
+    if couch_row_count is not None:
+        if len(couch_rows) < couch_row_count:
+            raise SystemExit(
+                f"couchShifts.txt has {len(couch_rows)} rows, "
+                f"but couch_row_count={couch_row_count} requires at least that "
+                f"many."
+            )
+        couch_rows = couch_rows[-couch_row_count:]
+
+    shifts = couch_rows_to_shifts(couch_rows)
+
+    expected_deltas = n_files - 1
+    if len(shifts) != expected_deltas:
         raise SystemExit(
-            f"Expected 4 sub-arcs, found {kim_df['file_index'].nunique()}."
+            f"Expected {expected_deltas} couch shifts for {n_files} trajectory "
+            f"files, found {len(shifts)} (from {len(couch_rows)} couch rows)."
         )
-    if len(shifts) != 3:
-        raise SystemExit(f"Expected 3 couch shifts, found {len(shifts)}.")
 
     # Tag each contiguous burst (within the same file_index, no gaps > threshold)
     # so the plot can break lines across acquisition pauses.
@@ -252,7 +350,7 @@ def main() -> None:
     kim_df["burst_id"] = new_burst.cumsum()
 
     # --- console summary ------------------------------------------------------
-    print(f"Loaded {len(kim_df)} frames across {kim_df['file_index'].nunique()} segments")
+    print(f"Loaded {len(kim_df)} frames across {n_files} segments")
     for fi, seg in kim_df.groupby("file_index"):
         print(
             f"  segment {fi}: {len(seg):4d} frames, "
@@ -261,17 +359,21 @@ def main() -> None:
     print(f"Acquisition bursts (gaps > {GAP_BREAK_S:.0f} s): {kim_df['burst_id'].nunique()}")
 
     magnitudes = [np.sqrt(s["lr"] ** 2 + s["si"] ** 2 + s["ap"] ** 2) for s in shifts]
-    # Rank intra-fraction corrections (excluding the localisation shift) by 3D
-    # magnitude. The headlined "largest" correction is the largest of these.
-    intrafx_indices = [k for k in range(len(shifts)) if k != LOCALISATION_SHIFT_IDX]
-    headline_idx = max(intrafx_indices, key=lambda k: magnitudes[k])
+    intrafx_indices = [k for k in range(len(shifts)) if k != localisation_shift_idx]
+    largest_intrafx_idx = (
+        max(intrafx_indices, key=lambda k: magnitudes[k]) if intrafx_indices else None
+    )
 
     print("Couch corrections (mm):")
     for k, (s, mag) in enumerate(zip(shifts, magnitudes)):
-        if k == LOCALISATION_SHIFT_IDX:
+        if k == localisation_shift_idx:
             marker = "  (localisation, excluded)"
-        elif k == headline_idx:
+        elif k == headline_shift_idx and k == largest_intrafx_idx:
             marker = "  *** LARGEST INTRA-FRACTION ***"
+        elif k == headline_shift_idx:
+            marker = "  *** HEADLINED ***"
+        elif k in intrafx_indices:
+            marker = ""
         else:
             marker = ""
         print(
@@ -288,13 +390,27 @@ def main() -> None:
         t_next_start = kim_df.loc[kim_df["file_index"] == next_fi, "time"].min()
         boundaries_real_s.append((t_prev_end + t_next_start) / 2.0)
 
+    # --- resolve zoom window --------------------------------------------------
+    if window_min is None:
+        headline_t_min = boundaries_real_s[headline_shift_idx] / 60.0
+        fraction_end_min = kim_df["time"].max() / 60.0
+        window_min = (
+            max(0.0, headline_t_min - auto_half),
+            min(fraction_end_min, headline_t_min + auto_half),
+        )
+        print(
+            f"Auto window: headline shift at {headline_t_min:.2f} min -> "
+            f"window {window_min[0]:.2f}-{window_min[1]:.2f} min "
+            f"(fraction end {fraction_end_min:.2f} min)"
+        )
+
     # --- restrict to the zoom window and compress beam-off pauses -------------
-    window_s = (WINDOW_MIN[0] * 60.0, WINDOW_MIN[1] * 60.0)
+    window_s = (window_min[0] * 60.0, window_min[1] * 60.0)
     win_df = kim_df[
         (kim_df["time"] >= window_s[0]) & (kim_df["time"] <= window_s[1])
     ].sort_values("time").reset_index(drop=True)
     if win_df.empty:
-        raise SystemExit(f"No frames in window {WINDOW_MIN[0]}-{WINDOW_MIN[1]} min.")
+        raise SystemExit(f"No frames in window {window_min[0]}-{window_min[1]} min.")
 
     display_s, gap_real_intervals, gap_display_intervals = compress_time_gaps(
         win_df["time"].values, GAP_BREAK_S, GAP_COMPRESS_S
@@ -308,20 +424,20 @@ def main() -> None:
         return np.interp(t_real_s, win_df["time"].values, display_s)
 
     print(
-        f"Zoom window {WINDOW_MIN[0]:.0f}-{WINDOW_MIN[1]:.0f} min: "
+        f"Zoom window {window_min[0]:.0f}-{window_min[1]:.0f} min: "
         f"{len(win_df)} frames, {len(gap_display_intervals)} compressed pauses"
     )
 
     # --- compute overlay shift (mm in KIM frame) ------------------------------
     # VRT -> AP (meas_z), LNG -> SI (meas_y), LAT -> LR (meas_x). Couch
     # positions in cm, convert delta to mm.
-    overlay_dap = (OVERLAY_TO_CM[0] - OVERLAY_FROM_CM[0]) * 10.0
-    overlay_dsi = (OVERLAY_TO_CM[1] - OVERLAY_FROM_CM[1]) * 10.0
-    overlay_dlr = (OVERLAY_TO_CM[2] - OVERLAY_FROM_CM[2]) * 10.0
+    overlay_dap = (overlay_to_cm[0] - overlay_from_cm[0]) * 10.0
+    overlay_dsi = (overlay_to_cm[1] - overlay_from_cm[1]) * 10.0
+    overlay_dlr = (overlay_to_cm[2] - overlay_from_cm[2]) * 10.0
     overlay_delta = {"meas_x": overlay_dlr, "meas_y": overlay_dsi, "meas_z": overlay_dap}
     print(
-        f"No-correction overlay (subtracts applied shift {OVERLAY_FROM_CM} -> "
-        f"{OVERLAY_TO_CM} cm): LR={overlay_dlr:+.1f} SI={overlay_dsi:+.1f} "
+        f"No-correction overlay (subtracts applied shift {overlay_from_cm} -> "
+        f"{overlay_to_cm} cm): LR={overlay_dlr:+.1f} SI={overlay_dsi:+.1f} "
         f"AP={overlay_dap:+.1f} mm"
     )
 
@@ -329,7 +445,7 @@ def main() -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
     fig, axes = plt.subplots(3, 1, figsize=(7.0, 6.5), sharex=True)
 
-    headline_display_s = float(real_to_display(boundaries_real_s[headline_idx]))
+    headline_display_s = float(real_to_display(boundaries_real_s[headline_shift_idx]))
     band_half_width_s = 9.0  # ~18 s wide in real seconds; shown on display axis
 
     # X-axis tick locations: nice 1-minute real-time marks within the window,
@@ -337,7 +453,7 @@ def main() -> None:
     # time falls inside a compressed gap (no data exists at that real time, so
     # the label would be misleading). Labels show real time.
     candidate_real_min = np.arange(
-        np.ceil(WINDOW_MIN[0]), np.floor(WINDOW_MIN[1]) + 0.5, 1.0
+        np.ceil(window_min[0]), np.floor(window_min[1]) + 0.5, 1.0
     )
 
     def _inside_gap(t_s):
@@ -361,7 +477,7 @@ def main() -> None:
                 lw=0.0,
                 zorder=0,
             )
-        # Highlight band for the headline intra-fraction correction
+        # Highlight band for the headlined intra-fraction correction
         ax.axvspan(
             (headline_display_s - band_half_width_s) / 60.0,
             (headline_display_s + band_half_width_s) / 60.0,
@@ -372,7 +488,7 @@ def main() -> None:
         # Dotted vertical line at every couch shift that falls inside the window
         # (excluding the localisation shift)
         for k, t_real in enumerate(boundaries_real_s):
-            if k == LOCALISATION_SHIFT_IDX:
+            if k == localisation_shift_idx:
                 continue
             if window_s[0] <= t_real <= window_s[1]:
                 ax.axvline(
@@ -393,7 +509,7 @@ def main() -> None:
         # the main trace so the overlay is visually subordinate but still
         # readable.
         if overlay_delta[col] != 0:
-            post_df = win_df[win_df["file_index"] > headline_idx]
+            post_df = win_df[win_df["file_index"] > headline_shift_idx]
             for _, burst in post_df.groupby("burst_id"):
                 ax.plot(
                     burst["display_s"] / 60.0,
@@ -420,42 +536,41 @@ def main() -> None:
         for y in (-2.0, 2.0):
             ax.axhline(y, color="#555555", ls=(0, (1, 1.5)), lw=1.1, alpha=0.95, zorder=1)
         ax.set_ylabel(ylabel)
-        ax.set_ylim(*Y_LIMITS[col])
+        ax.set_ylim(*y_limits[col])
 
     axes[-1].set_xlabel("Time since first imaging (min)")
     axes[-1].set_xticks(display_tick_min)
     axes[-1].set_xticklabels([f"{t:.0f}" for t in real_tick_min])
     axes[-1].set_xlim(display_s[0] / 60.0, display_s[-1] / 60.0)
 
-    # Headline-correction textbox in the LR panel
-    s = shifts[headline_idx]
-    text = (
-        f"Largest intra-fraction correction (#{headline_idx + 1})\n"
-        f"$\\Delta$LR = {s['lr']:+.1f} mm\n"
-        f"$\\Delta$SI = {s['si']:+.1f} mm\n"
-        f"$\\Delta$AP = {s['ap']:+.1f} mm\n"
-        f"$|\\Delta|$ = {magnitudes[headline_idx]:.1f} mm"
-    )
-    axes[0].text(
-        0.015,
-        0.97,
-        text,
-        transform=axes[0].transAxes,
-        fontsize=8,
-        va="top",
-        ha="left",
-        bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="goldenrod", lw=1.2),
-    )
+    # Optional headline-correction textbox in the LR panel. Disabled when the
+    # figure is meant to ship with a published caption that already carries the
+    # correction magnitudes (e.g. the FX04 abstract figure).
+    if config.get("show_correction_textbox", True):
+        s = shifts[headline_shift_idx]
+        text = (
+            f"{headline_label} (#{headline_shift_idx + 1})\n"
+            f"$\\Delta$LR = {s['lr']:+.1f} mm\n"
+            f"$\\Delta$SI = {s['si']:+.1f} mm\n"
+            f"$\\Delta$AP = {s['ap']:+.1f} mm\n"
+            f"$|\\Delta|$ = {magnitudes[headline_shift_idx]:.1f} mm"
+        )
+        axes[0].text(
+            0.015,
+            0.97,
+            text,
+            transform=axes[0].transAxes,
+            fontsize=8,
+            va="top",
+            ha="left",
+            bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="goldenrod", lw=1.2),
+        )
 
-    fig.suptitle(
-        "PRIME trajectory log - patient PAT01, fraction FX04",
-        fontsize=14,
-        y=0.995,
-    )
+    fig.suptitle(suptitle, fontsize=14, y=0.995)
     fig.text(
         0.5,
         0.955,
-        "Marker centroid deviation from planned isocentre; hatched bands mark beam-off pauses (compressed for clarity)",
+        subtitle,
         ha="center",
         fontsize=9,
         style="italic",
@@ -464,9 +579,44 @@ def main() -> None:
 
     fig.tight_layout(rect=(0, 0, 1, 0.94))
 
-    OUTPUT_PNG.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUTPUT_PNG, dpi=300, bbox_inches="tight", facecolor="white")
-    print(f"Saved figure -> {OUTPUT_PNG}")
+    output_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_png, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"Saved figure -> {output_png}")
+
+
+def _fx04_config() -> dict:
+    """Build the FX04 config that reproduces docs/prime_pat01_fx04_stepjumps.png."""
+    kim_folder = r"L:\LEARN\GenesisCare\PRIME\Trajectory Logs\PAT01\FX04\Trajectory Logs"
+    return {
+        "kim_folder": kim_folder,
+        "couch_file": kim_folder + r"\couchShifts.txt",
+        "centroid_file": r"L:\LEARN\GenesisCare\PRIME\Patient Files\PAT01\Centroid_PAT01_BeamID_1.1_1.2_1.3_1.4.txt",
+        "output_png": Path(__file__).resolve().parent.parent / "docs" / "prime_pat01_fx04_stepjumps.png",
+        "couch_row_count": None,  # FX04 has no stale rows
+        "localisation_shift_idx": 0,
+        # FX04: shift #2 (index 1) is the largest intra-fraction correction
+        # (|Delta| = 2.83 mm). This matches the committed abstract figure.
+        "headline_shift_idx": 1,
+        "window_min": (4.0, 11.0),
+        "y_limits": {
+            "meas_x": (-5.0, 5.0),
+            "meas_y": (-5.0, 5.0),
+            "meas_z": (-5.0, 5.0),
+        },
+        # FX04 shift #2 absolute couch positions (rows 2 and 3 of couchShifts.txt)
+        "overlay_from_cm": (-18.0, 66.1, 1.0),
+        "overlay_to_cm": (-17.8, 66.3, 1.0),
+        "suptitle": "Largest KIM-guided intra-fraction couch correction in PRIME trial first patient (FX04)",
+        "subtitle": "Marker centroid deviation from planned isocentre; hatched bands mark beam-off pauses (compressed for clarity)",
+        "headline_label": "Largest intra-fraction correction",
+        # Textbox info is captured in the published caption.
+        "show_correction_textbox": False,
+    }
+
+
+def main() -> None:
+    make_figure(_fx04_config())
 
 
 if __name__ == "__main__":
