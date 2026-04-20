@@ -445,7 +445,19 @@ def make_figure(config: dict) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
     fig, axes = plt.subplots(3, 1, figsize=(7.0, 6.5), sharex=True)
 
-    headline_display_s = float(real_to_display(boundaries_real_s[headline_shift_idx]))
+    # Real-time location of the highlighted couch correction. Defaults to the
+    # midpoint of the file boundary corresponding to `headline_shift_idx`, but
+    # can be overridden via `headline_t_override_s` for fractions where the
+    # actual correction event happened mid-file rather than at a file boundary
+    # (e.g. PAT01 FX05). When overridden, the post-correction overlay filter
+    # also uses this time so frames after the in-file step jump are correctly
+    # identified as "post-correction".
+    headline_t_override_s = config.get("headline_t_override_s")
+    if headline_t_override_s is not None:
+        headline_t_real_s = float(headline_t_override_s)
+    else:
+        headline_t_real_s = float(boundaries_real_s[headline_shift_idx])
+    headline_display_s = float(real_to_display(headline_t_real_s))
     band_half_width_s = 9.0  # ~18 s wide in real seconds; shown on display axis
 
     # X-axis tick locations: nice 1-minute real-time marks within the window,
@@ -507,9 +519,11 @@ def make_figure(config: dict) -> None:
         # gives the pre-correction deviation level, i.e. where the tumour would
         # have continued sitting had the operator NOT intervened. Drawn behind
         # the main trace so the overlay is visually subordinate but still
-        # readable.
+        # readable. The post-correction filter is time-based (rather than
+        # file-index-based) so it works correctly when the headlined event is
+        # mid-file rather than at a file boundary (FX05).
         if overlay_delta[col] != 0:
-            post_df = win_df[win_df["file_index"] > headline_shift_idx]
+            post_df = win_df[win_df["time"] > headline_t_real_s]
             for _, burst in post_df.groupby("burst_id"):
                 ax.plot(
                     burst["display_s"] / 60.0,
@@ -538,7 +552,7 @@ def make_figure(config: dict) -> None:
         ax.set_ylabel(ylabel)
         ax.set_ylim(*y_limits[col])
 
-    axes[-1].set_xlabel("Time since first imaging (min)")
+    axes[-1].set_xlabel("Time from kV beam-on (min)")
     axes[-1].set_xticks(display_tick_min)
     axes[-1].set_xticklabels([f"{t:.0f}" for t in real_tick_min])
     axes[-1].set_xlim(display_s[0] / 60.0, display_s[-1] / 60.0)
@@ -566,27 +580,45 @@ def make_figure(config: dict) -> None:
             bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="goldenrod", lw=1.2),
         )
 
-    fig.suptitle(suptitle, fontsize=14, y=0.995)
-    fig.text(
-        0.5,
-        0.955,
-        subtitle,
-        ha="center",
-        fontsize=9,
-        style="italic",
-        color="dimgrey",
-    )
-
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    show_suptitle = config.get("show_suptitle", True)
+    if show_suptitle:
+        fig.suptitle(suptitle, fontsize=14, y=0.995)
+        if subtitle:
+            fig.text(
+                0.5,
+                0.955,
+                subtitle,
+                ha="center",
+                fontsize=9,
+                style="italic",
+                color="dimgrey",
+            )
+            fig.tight_layout(rect=(0, 0, 1, 0.94))
+        else:
+            # Suptitle only (no subtitle): tighter top margin so the panels
+            # reclaim the space the italic subtitle would have taken.
+            fig.tight_layout(rect=(0, 0, 1, 0.96))
+    else:
+        # No suptitle / subtitle: panels reclaim the top margin so the data
+        # plots in each composite quadrant are visually larger.
+        fig.tight_layout()
 
     output_png.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_png, dpi=300, bbox_inches="tight", facecolor="white")
+    fig.savefig(output_png, dpi=config.get("dpi", 600), bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"Saved figure -> {output_png}")
 
 
 def _fx04_config() -> dict:
-    """Build the FX04 config that reproduces docs/prime_pat01_fx04_stepjumps.png."""
+    """Build the FX04 config for the abstract figure at
+    docs/prime_pat01_fx04_stepjumps.png.
+
+    The headlined event is shift #3 (intra-fraction correction 2 of 2): a clean
+    AP-only correction where the recorded post-correction trace responds as
+    expected. The other FX04 intra-fraction event (shift #2) is the one whose
+    AP response is partially counteracted by rapid bladder filling and is less
+    suitable for the abstract figure's main illustration.
+    """
     kim_folder = r"L:\LEARN\GenesisCare\PRIME\Trajectory Logs\PAT01\FX04\Trajectory Logs"
     return {
         "kim_folder": kim_folder,
@@ -595,21 +627,21 @@ def _fx04_config() -> dict:
         "output_png": Path(__file__).resolve().parent.parent / "docs" / "prime_pat01_fx04_stepjumps.png",
         "couch_row_count": None,  # FX04 has no stale rows
         "localisation_shift_idx": 0,
-        # FX04: shift #2 (index 1) is the largest intra-fraction correction
-        # (|Delta| = 2.83 mm). This matches the committed abstract figure.
-        "headline_shift_idx": 1,
-        "window_min": (4.0, 11.0),
+        # FX04 shift #3 (index 2): intervention 2 of 2, the clean AP-only
+        # correction (|Delta| = 2.0 mm).
+        "headline_shift_idx": 2,
+        "window_min": (7.0, 14.0),
         "y_limits": {
             "meas_x": (-5.0, 5.0),
             "meas_y": (-5.0, 5.0),
             "meas_z": (-5.0, 5.0),
         },
-        # FX04 shift #2 absolute couch positions (rows 2 and 3 of couchShifts.txt)
-        "overlay_from_cm": (-18.0, 66.1, 1.0),
-        "overlay_to_cm": (-17.8, 66.3, 1.0),
-        "suptitle": "Largest KIM-guided intra-fraction couch correction in PRIME trial first patient (FX04)",
-        "subtitle": "Marker centroid deviation from planned isocentre; hatched bands mark beam-off pauses (compressed for clarity)",
-        "headline_label": "Largest intra-fraction correction",
+        # FX04 shift #3 absolute couch positions (rows 4 and 5 of couchShifts.txt)
+        "overlay_from_cm": (-17.8, 66.3, 1.0),
+        "overlay_to_cm": (-17.6, 66.3, 1.0),
+        "suptitle": "KIM-detected trajectory with intervention event highlighted",
+        "subtitle": "",  # info captured in the published caption
+        "headline_label": "Intra-fraction correction 2 of 2",
         # Textbox info is captured in the published caption.
         "show_correction_textbox": False,
     }

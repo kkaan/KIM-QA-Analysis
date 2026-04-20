@@ -43,6 +43,48 @@ Y_LIMITS = {
 
 FRACTIONS = ["FX01", "FX02", "FX03", "FX04", "FX05"]
 
+# Per-fraction explicit window overrides (real-time minutes). Used when the
+# default ±3.5-min auto window centred on the headline shift produces a poor
+# visual layout — e.g. when long beam-off pauses on one side of the
+# intervention compress that half of the window in display space and push the
+# gold band off-centre.
+#
+#   FX05: see EMPIRICAL_SHIFT_OVERRIDES below — the actual correction event is
+#   mid-file-1 around 4.6 min, not at the 7.95 min file boundary. The window
+#   is chosen to bracket the real event with lead-up and recovery visible.
+WINDOW_OVERRIDES = {
+    "FX05": (2.5, 9.5),
+}
+
+# Per-fraction empirical-shift overrides for fractions where the actual couch
+# correction event is NOT captured at a file boundary (the script's default
+# detection mechanism) and is also NOT captured by a non-zero couchShifts.txt
+# delta. The override forces the gold band to a specific real-time location
+# and encodes a synthetic from/to couch tuple so the no-correction overlay
+# subtracts the empirically-derived shift instead of the (incorrectly logged)
+# zero delta.
+#
+#   FX05: between the file 1 burst at 4.26-4.48 min (72 frames, AP -2.97 mm)
+#   and the next single-frame burst at 4.77 min (AP -0.06 mm) there is a 17.5
+#   second gap; on the far side of the gap the AP centroid jumps by ~+3 mm and
+#   stays there for the rest of the fraction. The KIM tracker did not start a
+#   new MarkerLocationsGA file across this gap, and couchShifts.txt logs
+#   identical absolute couch positions on both sides of the file 1->2 boundary.
+#   The empirical shift derived from the trace is approximately:
+#       LR = +0.06 mm   SI = +1.76 mm   AP = +2.93 mm   |D| = 3.42 mm
+#   See prime-notes/PAT01 FX01 data quality.md (FX05 section) and the email
+#   to Paul/Chandrima at OneDrive\...\fx05-anomaly\email-draft.md for context.
+EMPIRICAL_SHIFT_OVERRIDES = {
+    "FX05": {
+        # Real time of the gold-band centre (s). 4.625 min = midpoint of the
+        # 4.48-4.77 min in-file gap.
+        "headline_t_override_s": 4.625 * 60.0,
+        # Empirical shift in mm (LR, SI, AP). Encoded into the synthetic
+        # overlay_to_cm so the no-correction overlay subtracts the right delta.
+        "empirical_shift_mm": {"lr": 0.06, "si": 1.76, "ap": 2.93},
+    },
+}
+
 
 def _count_marker_files(kim_folder: str) -> int:
     return len(
@@ -86,10 +128,14 @@ def _read_couch_rows(couch_file: str) -> list[tuple[float, float, float]]:
     return rows
 
 
-def _build_fraction_configs(fraction: str) -> list[dict]:
+def build_fraction_configs(fraction: str) -> list[dict]:
     """Build one `make_figure` config per intra-fraction intervention in
     `fraction`. Returns an empty list for fractions without any intra-fraction
     interventions (so the caller can skip cleanly).
+
+    Public API: also imported by `make_pat01_intervention_grid.py` to render
+    chrome-stripped versions of the same figures into a temp directory before
+    composing the 2x2 grid.
     """
     kim_folder = os.path.join(TRAJ_ROOT, fraction, "Trajectory Logs")
     couch_file = os.path.join(kim_folder, "couchShifts.txt")
@@ -123,10 +169,6 @@ def _build_fraction_configs(fraction: str) -> list[dict]:
         f"{n_intrafx} intra-fraction intervention(s)."
     )
 
-    fx_num = fraction.lstrip("FX").lstrip("0") or "0"
-    suptitle = f"PRIME trajectory log - patient PAT01, fraction {fraction}"
-    subtitle = "Marker centroid deviation from planned isocentre; hatched bands mark beam-off pauses (compressed for clarity)"
-
     configs: list[dict] = []
     for j in range(n_intrafx):
         # Intra-fraction shift #j (1-indexed) is delta index 1 + j in the
@@ -137,7 +179,19 @@ def _build_fraction_configs(fraction: str) -> list[dict]:
         overlay_to_cm = rows[shift_idx + 1]
         intervention_label = f"intervention_{j + 1}"
         output_png = OUTPUT_DIR / f"pat01_{fraction.lower()}_{intervention_label}.png"
-        configs.append({
+        # Title format depends on whether the fraction has one or many
+        # intra-fraction interventions.
+        if n_intrafx == 1:
+            suptitle = (
+                f"KIM-detected trajectory with the intervention event "
+                f"highlighted (PAT01 {fraction})"
+            )
+        else:
+            suptitle = (
+                f"KIM-detected trajectory with intervention event "
+                f"{j + 1} of {n_intrafx} highlighted (PAT01 {fraction})"
+            )
+        cfg = {
             "kim_folder": kim_folder,
             "couch_file": couch_file,
             "centroid_file": CENTROID_FILE,
@@ -145,15 +199,35 @@ def _build_fraction_configs(fraction: str) -> list[dict]:
             "couch_row_count": n_files,
             "localisation_shift_idx": 0,
             "headline_shift_idx": shift_idx,
-            "window_min": None,
+            "window_min": WINDOW_OVERRIDES.get(fraction),
             "auto_window_half_width_min": 3.5,
             "y_limits": Y_LIMITS,
             "overlay_from_cm": overlay_from_cm,
             "overlay_to_cm": overlay_to_cm,
             "suptitle": suptitle,
-            "subtitle": subtitle,
+            "subtitle": "",  # subtitle dropped — info covered by the caption
             "headline_label": f"Intra-fraction correction {j + 1} of {n_intrafx}",
-        })
+            # Magnitudes are reported in the published caption rather than in
+            # an in-figure textbox.
+            "show_correction_textbox": False,
+        }
+
+        # Apply empirical-shift override (FX05) if present. This forces the
+        # gold band to a specific real time and synthesises an overlay_to_cm
+        # tuple that encodes the empirical shift instead of the zero-magnitude
+        # logged delta. See EMPIRICAL_SHIFT_OVERRIDES docstring above.
+        override = EMPIRICAL_SHIFT_OVERRIDES.get(fraction)
+        if override is not None:
+            cfg["headline_t_override_s"] = override["headline_t_override_s"]
+            es = override["empirical_shift_mm"]
+            base = cfg["overlay_from_cm"]
+            cfg["overlay_to_cm"] = (
+                base[0] + es["ap"] / 10.0,  # VRT (cm) -> AP (mm)
+                base[1] + es["si"] / 10.0,  # LNG (cm) -> SI (mm)
+                base[2] + es["lr"] / 10.0,  # LAT (cm) -> LR (mm)
+            )
+
+        configs.append(cfg)
     return configs
 
 
@@ -164,7 +238,7 @@ def main() -> None:
         print()
         print(f"========== {fraction} ==========")
         try:
-            configs = _build_fraction_configs(fraction)
+            configs = build_fraction_configs(fraction)
         except SystemExit as exc:
             print(f"{fraction}: {exc}")
             continue
