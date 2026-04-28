@@ -46,7 +46,7 @@ in one process, packaged with PyInstaller into a single Windows `.exe`.
 ### Known issues — NOT YET FIXED
 - **FX01 chart artefacts** caused by a non-monotonic Time column inside its
   trajectory files (a *second* merged-session anomaly, distinct from the
-  couchShifts.txt one). See the GitHub issue created in this session for the
+  couchShifts.txt one). See [issue #8](https://github.com/kkaan/KIM-QA-Analysis/issues/8) created in this session for the
   diagnostic detail and proposed fix. Code from the in-progress fix has been
   reverted from this branch so we can land a clean handoff.
 
@@ -97,7 +97,7 @@ cd ..; pyinstaller KIM-QA-Reporter.spec
 ## Remaining TODOs
 
 ### High priority
-1. **Land the FX01 fix.** See the GitHub issue. The approach we were on:
+1. **Land the FX01 fix.** See [issue #8](https://github.com/kkaan/KIM-QA-Analysis/issues/8). The approach we were on:
    - In `kim_app/core/loader.py`, scan the concatenated trajectory stream for
      backward time-jumps > 5 s and drop everything before the LAST jump.
    - Add a `merged_session_drop_count: int` field to `LoadResult`.
@@ -109,7 +109,7 @@ cd ..; pyinstaller KIM-QA-Reporter.spec
      the **first** `n_extra` deltas are pre-trajectory shifts (assign them
      synthetic negative times so the localisation event still appears in the
      intervention list).
-   - The earlier in-progress code is in the GitHub issue body for reference.
+   - The earlier in-progress code is in [issue #8](https://github.com/kkaan/KIM-QA-Analysis/issues/8) body for reference.
 
 2. **Validate the PyInstaller frozen build** end-to-end on a clean Windows
    profile (ideally a VM with no Python installed). The spec file currently
