@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Vite output (built into kim_app/ at release time)
+kim_app/web_dist/
+
+# PyInstaller
+*.spec.bak
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# The repo-root .gitignore has `lib/` (Python build convention) which would
+# otherwise hide our TypeScript module directory at web/src/lib/. Un-ignore it.
+!web/src/lib/
+!web/src/lib/**

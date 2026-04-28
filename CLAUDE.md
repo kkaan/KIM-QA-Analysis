@@ -59,6 +59,44 @@ Two files with clear separation:
 
 Centroid files use (X, Y, Z) in cm. Trajectory files use (LR, SI, AP). Internal representation is (x, y, z) in mm. The transform applied is: x=x_centroid, y=z_centroid, z=-y_centroid.
 
+### KIM-QA Reporter desktop app (`kim-reporter/`)
+
+A separate, modern desktop tool for clinical PDF reporting of KIM-guided couch
+corrections. Built on Python + FastAPI + pywebview + React/Plotly so the UI
+runs in an Edge WebView2 window served by an in-process uvicorn.
+
+- **`kim_app/core/loader.py`** — Dynamic-marker centroid loader. Detects 1–N
+  markers per fraction (replacing the hardcoded `Marker_0` + `Marker_1`
+  assumption in `abstract-figures/load_kim_centroid`) and supports per-marker
+  deselection so a migrated seed can be excluded at runtime.
+- **`kim_app/api/routes.py`** — FastAPI surface (`/api/scan`, `/api/fraction`,
+  `/api/render-pdf`).
+- **`kim_app/pdf/report.py`** — ReportLab clinical PDF template (A4 portrait).
+- **`web/`** — React + Vite + Tailwind frontend bundled into
+  `kim_app/web_dist/` at build time and shipped via PyInstaller `--onefile`.
+
+Run in dev (separate Vite + uvicorn):
+```powershell
+cd kim-reporter\web; npm install; npm run dev
+# in another terminal
+cd kim-reporter
+pip install -e ".[dev]"
+$env:KIM_REPORTER_DEV_FRONTEND="http://localhost:5173"
+python -m kim_app
+```
+
+Build distributable:
+```powershell
+cd kim-reporter\web; npm run build
+cd ..; pyinstaller KIM-QA-Reporter.spec
+# Output: dist/KIM-QA-Reporter.exe
+```
+
+Reuses `python_app/kim_analysis_logic.parse_centroid_file` and the parser
+quirks (thousands-separator regex, sentinel/glitch filters, FX01 mixed-session
+handling) from `abstract-figures/make_prime_stepjump_figure.py`. The
+abstract-figures pipeline is untouched — the reporter is additive.
+
 ### Legacy MATLAB code
 
 `Elekta/` and `Varian Truebeam/` contain the original MATLAB App Designer implementations (.mlapp + .m files). The Python app is a refactored replacement. These directories serve as reference.
