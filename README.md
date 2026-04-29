@@ -205,6 +205,10 @@ An interactive browser-based simulator demonstrating depth-dependent magnificati
 
 Features adjustable SAD, SID, focal spot size, gantry angle, and target translation controls with real-time BEV scene and detector projection views.
 
+## Related tools
+
+**[KIM-QA Reporter](https://github.com/kkaan/kim-reporter)** (private) — companion desktop app for clinical PDF reporting of KIM-guided couch corrections. Reads the same trajectory log format and centroid files, renders interactive deviation plots, and exports A4 reports with intervention summary tables and physicist notes.
+
 ## References
 
 For detailed information about the KIM QA analysis methodology, see:

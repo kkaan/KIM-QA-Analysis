@@ -59,6 +59,17 @@ Two files with clear separation:
 
 Centroid files use (X, Y, Z) in cm. Trajectory files use (LR, SI, AP). Internal representation is (x, y, z) in mm. The transform applied is: x=x_centroid, y=z_centroid, z=-y_centroid.
 
+### KIM-QA Reporter (standalone repo)
+
+The clinical PDF reporting tool has been extracted into its own repository:
+**https://github.com/kkaan/kim-reporter** (private).
+
+It is no longer part of this repo. The reporter reuses the parser quirks
+documented in `abstract-figures/make_prime_stepjump_figure.py` (thousands-
+separator regex, sentinel/glitch filters, FX01 mixed-session handling) but
+vendors its own copy of `parse_centroid_file` in `kim_app/core/loader.py`
+so it has no runtime dependency on this repo.
+
 ### Legacy MATLAB code
 
 `Elekta/` and `Varian Truebeam/` contain the original MATLAB App Designer implementations (.mlapp + .m files). The Python app is a refactored replacement. These directories serve as reference.
